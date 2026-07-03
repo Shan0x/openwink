@@ -1,0 +1,538 @@
+#include "esp_sleep.h"
+#include "ButtonHandler.h"
+
+#include <Arduino.h>
+
+#include "BLE.h"
+#include "BLECallbacks.h"
+#include "MainFunctions.h"
+#include "Storage.h"
+#include "constants.h"
+#include "esp32-hal-gpio.h"
+#include <string>
+#include "CommandHandler.h"
+
+
+using namespace std;
+
+RTC_DATA_ATTR int initialButton = 0;
+RTC_DATA_ATTR bool bypassHeadlightOverride = false;
+
+int motionButtonStatus = 0;
+unsigned long motionTimer = 0;
+
+unsigned long ButtonHandler::mainTimer = 0;
+unsigned long ButtonHandler::buttonTimer = 0;
+int ButtonHandler::buttonPressCounter = 0;
+bool ButtonHandler::customCommandActive = false;
+bool ButtonHandler::resetArmed = false;
+
+bool ButtonHandler::isSleepyCommand = false;
+bool ButtonHandler::commandRunning = false;
+
+bool ButtonHandler::leftMoving = false;
+bool ButtonHandler::rightMoving = false;
+
+unsigned long ButtonHandler::leftTimer = 0;
+unsigned long ButtonHandler::rightTimer = 0;
+
+int ButtonHandler::leftMoveTime = HEADLIGHT_MOVEMENT_DELAY;
+int ButtonHandler::rightMoveTime = HEADLIGHT_MOVEMENT_DELAY;
+
+unsigned long debounceTimer = 0;
+const int DEBOUNCE_MS = 35;
+bool checkDebounce = false;
+bool debounceOccurred = false;
+
+void ButtonHandler::setupGPIO() {
+  // Outputs for headlight movement
+  pinMode(OUT_PIN_LEFT_DOWN, OUTPUT);
+  pinMode(OUT_PIN_LEFT_UP, OUTPUT);
+  pinMode(OUT_PIN_RIGHT_DOWN, OUTPUT);
+  pinMode(OUT_PIN_RIGHT_UP, OUTPUT);
+  // OEM Wiring inputs to detect initial state of headlights
+  pinMode(OEM_BUTTON_INPUT, INPUT);
+  // Headlight feedback pins
+  pinMode(OEM_HEADLIGHT_STATUS_RIGHT, INPUT);
+  pinMode(OEM_HEADLIGHT_STATUS_LEFT, INPUT);
+}
+
+// If OEM Button Pressed while custom command is active
+void ButtonHandler::loopCustomCommandInterruptHandler() {
+  // if (!ButtonHandler::customCommandActive) return;
+  // Send interrupt command; 0 = turn command off.
+  ButtonHandler::setCustomCommandActive(false);
+  BLE::setCustomStatus(0);
+}
+
+void ButtonHandler::setCustomCommandActive(bool value) {
+  ButtonHandler::customCommandActive = value;
+
+  if (!value) {
+    CommandHandler::custom_command_loop = false;
+  }
+}
+
+void ButtonHandler::readOnWakeup() {
+  int wakeupValue = initialButton;
+  initialButton = digitalRead(OEM_BUTTON_INPUT);
+
+  if (customButtonStatusEnabled) {
+    mainTimer = millis();
+    if ((wakeupValue != initialButton)) {
+      buttonPressCounter++;
+
+      buttonTimer = millis();
+      debounceTimer = millis();
+    }
+  } else {
+    if ((wakeupValue != initialButton)) {
+      buttonPressCounter++;
+      if (initialButton == 1)
+        bothUp();
+      else
+        bothDown();
+      setAllOff();
+    }
+  }
+}
+
+void ButtonHandler::readWakeUpReason() {
+  esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+  if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT0)
+    awakeTime_ms = 5 * 1000 * 60;
+  else
+    awakeTime_ms = 0;
+}
+
+void ButtonHandler::handleButtonPressesResponse(int numberOfPresses) {
+
+  if (customButtonPressArray[numberOfPresses] == "0" 
+      && numberOfPresses != 11 
+      && numberOfPresses != 19) {
+
+    for (int i = 0; i < 9; i++) {
+      if (customButtonPressArray[i] == "0") {
+        numberOfPresses = i - 1;
+        break;
+      }
+    }
+    if (numberOfPresses >= 9)
+      numberOfPresses = 8;
+  }
+
+  // Uses above array of items
+  string response = customButtonPressArray[numberOfPresses];
+
+  if (response == "20") {
+
+    Storage::reset();
+
+    if (BLE::getDeviceConnected())
+      BLE::sendReset();
+
+    // reset sequence to visually indicate reset success
+    leftWink();
+    setAllOff();
+    rightWink();
+    setAllOff();
+    bothBlink();
+    setAllOff();
+
+    // reset wakeup sources
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+    // enable sleep timer
+    esp_sleep_enable_timer_wakeup(sleepTime_us);
+
+    int buttonInput = digitalRead(OEM_BUTTON_INPUT);
+    // enable gpio wakeup, depending on current state
+    if (buttonInput == 1)
+      esp_sleep_enable_ext0_wakeup((gpio_num_t)OEM_BUTTON_INPUT, 0);
+    else if (buttonInput == 0)
+      esp_sleep_enable_ext0_wakeup((gpio_num_t)OEM_BUTTON_INPUT, 1);
+
+    esp_deep_sleep_start();
+    return;
+  }
+
+  if (response == "10" && customButtonStatusEnabled) {
+    if (isSleepy())
+      sleepyReset(true, true);
+    else
+      sleepyEye(true, true);
+    return;
+    
+  } else if (response == "11" && customButtonStatusEnabled) {
+    // Left-Right
+    if (isSleepy()) sleepyReset(true, true);
+    if (leftStatus == 0) rightDown();
+    else rightUp();
+
+    if (leftStatus == 0) {
+      leftUp();
+      bothSwap();
+      bothSwap();
+      leftDown();
+    } else {
+      leftDown();
+      bothSwap();
+      bothSwap();
+      leftUp();
+    }
+    return;
+    
+  } else if (response == "13" && customButtonStatusEnabled) {
+    // Left-Right x2
+    if (isSleepy()) sleepyReset(true, true);
+    if (leftStatus == 0) rightDown();
+    else rightUp();
+
+    if (leftStatus == 0) {
+      leftUp();
+      bothSwap();
+      bothSwap();
+    } else {
+      leftDown();
+      bothSwap();
+      bothSwap();
+    }
+
+    bothSwap();
+    bothSwap();
+
+    if (leftStatus == 0) {
+      leftUp();
+    } else {
+      leftDown();
+    }
+
+    
+
+    return;
+  } else if (response == "14" && customButtonStatusEnabled) {
+    // Right-Left
+    if (isSleepy()) sleepyReset(true, true);
+    if (rightStatus == 0) leftDown();
+    else leftUp();
+
+    if (rightStatus == 0) {
+      rightUp();
+      bothSwap();
+      bothSwap();
+      rightDown();
+    } else {
+      rightDown();
+      bothSwap();
+      bothSwap();
+      rightUp();
+    }
+    return;
+  } else if (response == "15" && customButtonStatusEnabled) {
+    // Right-Left x2
+    if (isSleepy()) sleepyReset(true, true);
+    if (rightStatus == 0) leftDown();
+    else leftUp();
+
+    if (rightStatus == 0) {
+      rightUp();
+      bothSwap();
+      bothSwap();
+    } else {
+      rightDown();
+      bothSwap();
+      bothSwap();
+    }
+
+    bothSwap();
+    bothSwap();
+
+    
+    if (rightStatus == 0) {
+      rightUp();
+    } else {
+      rightDown();
+    }
+
+    return;
+  } else if (response == "12" && customButtonStatusEnabled) {
+    bool swap = Storage::getHeadlightOrientation();
+    Storage::setHeadlightOrientation(!swap);
+    BLE::setSwapStatus(!swap);
+    BLE::setBusy(true);
+    leftWink();
+    setAllOff();
+    BLE::setBusy(false);
+
+    return;
+  }
+
+  if (!customButtonStatusEnabled) return;
+
+  if (response.length() == 1) {
+    int parsed = stoi(response);
+    bool wasSleepy = false;
+    if (isSleepy()) {
+      sleepyReset(true, true);
+      if (parsed != 1)
+        wasSleepy = true;
+    }
+
+    BLE::setBusy(true);
+
+    switch (parsed) {
+    case 1:
+      if (initialButton == 1) {
+        bothUp();
+      } else if (initialButton == 0) {
+        bothDown();
+      }
+
+      rightStatus = initialButton;
+      leftStatus = initialButton;
+      break;
+
+    // TODO: If in sleepy eye, exit, execute, re-enter SAME WITH OTHER WAYS OF
+    // EXECUTING COMMANDS
+    case 2:
+      leftWink();
+      break;
+
+    case 3:
+      leftWink();
+      leftWink();
+      break;
+
+    case 4:
+      rightWink();
+      break;
+
+    case 5:
+      rightWink();
+      rightWink();
+      break;
+
+    case 6:
+      bothBlink();
+      break;
+
+    case 7:
+      bothBlink();
+      bothBlink();
+      break;
+
+    case 8:
+      if (leftStatus != rightStatus) {
+        if (leftStatus == 1)
+          rightUp();
+        else
+          rightDown();
+        setAllOff();
+        BLE::updateHeadlightChars();
+      }
+      waveHeadlights(WAVE_START_SIDE::LEFT);
+      break;
+
+    case 9:
+      if (leftStatus != rightStatus) {
+        if (rightStatus == 1)
+          leftUp();
+        else
+          leftDown();
+        setAllOff();
+        BLE::updateHeadlightChars();
+      }
+      waveHeadlights(WAVE_START_SIDE::RIGHT);
+      break;
+    }
+
+    if (wasSleepy)
+      sleepyEye(true, true);
+  } else {
+    // Check press index for looping
+    if (numberOfPresses < 9 && customButtonPressLoopArray[numberOfPresses])
+      CommandHandler::custom_command_loop = true;
+    else
+      CommandHandler::custom_command_loop = false;
+
+    // Queue command
+    queuedCustomCommand = response;
+  }
+
+  setAllOff();
+
+  BLE::updateHeadlightChars();
+  BLE::setBusy(false);
+}
+
+void ButtonHandler::loopButtonHandler() {
+  int buttonInput = digitalRead(OEM_BUTTON_INPUT);
+
+  if (buttonInput != initialButton) {
+    // every time button is pressed, reset mainTimer to allow sleep to function
+    // correctly
+    mainTimer = millis();
+    ButtonHandler::loopCustomCommandInterruptHandler();
+  }
+
+  // Small pulse occurred --- THIS MEANS HEADLIGHTS ARE *ON*. THIS IS ONE PRESS
+  if (customButtonStatusEnabled && checkDebounce && (buttonInput != initialButton) && (millis() - buttonTimer) <= DEBOUNCE_MS) {
+    if (!bypassHeadlightOverride) {
+      checkDebounce = false;
+      debounceOccurred = false;
+      buttonPressCounter = 0;
+      return;
+    }
+
+    debounceOccurred = true;
+    buttonPressCounter++;
+    
+    ButtonHandler::loopCustomCommandInterruptHandler();
+    initialButton = buttonInput;
+    // since debounce just happened, state would need to switch again for this
+    // to recheck.
+    checkDebounce = false;
+    return;
+  }
+
+  // if button input changes, set debounce timer and return
+  if (buttonInput != initialButton) {
+    debounceTimer = millis();
+    // button timer gets set every press (only affects non-headlight on /
+    // no-debounce state)
+    buttonTimer = millis();
+
+    
+    ButtonHandler::loopCustomCommandInterruptHandler();
+    // Set check for next loop through, debounce has not occurred yet, but need
+    // to check (if inputs differ when timer < 50ms)
+    debounceOccurred = false;
+    checkDebounce = true;
+  }
+
+  // IF debounce time has passed
+  if ((customButtonStatusEnabled && (!debounceOccurred && checkDebounce) &&
+      (millis() - buttonTimer) > DEBOUNCE_MS) || (!customButtonStatusEnabled && initialButton != buttonInput)) {
+    // no longer need to check debounce
+    checkDebounce = false;
+    // checkDebounce being true means that button was pressed previously
+    if (customButtonStatusEnabled) {
+      // add to counter
+      buttonPressCounter++;
+    } else {
+      buttonPressCounter++;
+      if (initialButton == 1) {
+        bothDown();
+      } else {
+        bothUp();
+      }
+      setAllOff();
+      initialButton = !initialButton;
+    }
+
+    // if button has been pressed at least one time, and wait time has exceeded
+    // max, execute action
+  } else if ((customButtonStatusEnabled && buttonPressCounter > 0 && (millis() - buttonTimer) > maxTimeBetween_ms) || 
+            (!customButtonStatusEnabled && buttonPressCounter > 0 && (millis() - buttonTimer) > 2000)) { // 2000 ms timeout for non-custom button press sequence, since the headlights need to move for each press to register
+    // Timeout has occurred, send command based on count
+
+    if (customButtonStatusEnabled ||
+        (!customButtonStatusEnabled &&
+         (buttonPressCounter == 12 || buttonPressCounter == 20)))
+      handleButtonPressesResponse(buttonPressCounter - 1);
+
+    buttonPressCounter = 0;
+  }
+
+  initialButton = buttonInput;
+}
+
+void ButtonHandler::loopLeftMonitor() {
+  int headlightStatus = digitalRead(OEM_HEADLIGHT_STATUS_LEFT);
+
+  if (headlightStatus == LOW && !leftMoving)
+    return;
+  if (headlightStatus == HIGH && leftMoving)
+    return;
+
+  if (!leftMoving && headlightStatus == HIGH) {
+    leftMoving = true;
+    leftTimer = millis();
+    BLE::setBusy(true);
+    return;
+  }
+
+  if (leftMoving && headlightStatus == LOW) {
+    unsigned long timeToMove = (millis() - leftTimer);
+    if (timeToMove <= 250)
+      return;
+
+    leftMoving = false;
+    if (timeToMove <= 1000 && timeToMove >= 450) {
+      leftMoveTime = static_cast<int>(timeToMove);
+    }
+    leftTimer = 0;
+    // If both left and right have stopped
+    if (!rightMoving) {
+      updateHeadlightDelay();
+      // BLE::setBusy(false);
+      ButtonHandler::setBusy(false);
+    }
+    return;
+  }
+}
+
+void ButtonHandler::loopRightMonitor() {
+  int headlightStatus = digitalRead(OEM_HEADLIGHT_STATUS_RIGHT);
+  if (headlightStatus == LOW && !rightMoving)
+    return;
+  if (headlightStatus == HIGH && rightMoving)
+    return;
+
+  if (!rightMoving && headlightStatus == HIGH) {
+    rightMoving = true;
+    rightTimer = millis();
+    BLE::setBusy(true);
+    return;
+  }
+
+  if (rightMoving && headlightStatus == LOW) {
+    unsigned long timeToMove = (millis() - rightTimer);
+    if (timeToMove <= 250)
+      return;
+    rightMoving = false;
+    if (timeToMove <= 1000 && timeToMove >= 450) {
+      rightMoveTime = static_cast<int>(timeToMove);
+    }
+    rightTimer = 0;
+    // If both left and right have stopped
+    if (!leftMoving) {
+      updateHeadlightDelay();
+      // BLE::setBusy(false);
+      ButtonHandler::setBusy(false);
+    }
+    return;
+  }
+}
+
+void ButtonHandler::updateHeadlightDelay() {
+  int left = static_cast<int>(leftMoveTime);
+  int right = static_cast<int>(rightMoveTime);
+  Storage::setMotionIn(SIDE::L, left);
+  Storage::setMotionIn(SIDE::R, right);
+  BLE::setMotionInValue(to_string(left) + "-" + to_string(right));
+}
+
+void ButtonHandler::updateButtonSleep() {
+  if (!BLE::getDeviceConnected() && (millis() - mainTimer) > advertiseTime_ms &&
+      (millis() - mainTimer) > awakeTime_ms) {
+    int buttonInput = digitalRead(OEM_BUTTON_INPUT);
+
+    if (buttonInput == 1)
+      esp_sleep_enable_ext0_wakeup((gpio_num_t)OEM_BUTTON_INPUT, 0);
+    else if (buttonInput == 0)
+      esp_sleep_enable_ext0_wakeup((gpio_num_t)OEM_BUTTON_INPUT, 1);
+
+    if (!BLE::getDeviceConnected())
+      esp_deep_sleep_start();
+  }
+}

@@ -1,0 +1,15 @@
+// Editor
+{
+   "editor.formatOnType": true,
+   "editor.formatOnPaste": true,
+   "editor.formatOnSave": true,
+   "editor.insertSpaces": true,
+   "editor.wordWrap": "wordWrapColumn",
+   "editor.wordWrapColumn": 400,
+   "editor.wrappingIndent": "deepIndent",
+   "[cpp]": {
+      "editor.defaultFormatter": "xaver.clang-format",
+      "editor.renderWhitespace": "all"
+   }
+}
+// C++ Formatting
