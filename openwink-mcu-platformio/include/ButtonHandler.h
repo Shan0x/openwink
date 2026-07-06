@@ -1,68 +1,49 @@
-#pragma once
+#ifndef __BUTTON_HANDLER_H
+#define __BUTTON_HANDLER_H
 
-extern int initialButton;
-extern bool bypassHeadlightOverride;
+#include "../include/RTC_ButtonData.h"
+#include "../include/globals.h"
 
-class ButtonHandler {
+#include <cstdint>
 
-private:
-  static unsigned long mainTimer;
-  static unsigned long buttonTimer;
-  static bool resetArmed;
-  static int buttonPressCounter;
+#define BUTTON_PRESSED 1   // GPIO High
+#define BUTTON_RELEASED 0  // GPIO Low
 
-  static bool isSleepyCommand;
+/// @brief Description:
+/// Handles the logic and state of each button created.
+class Button_Handler {
+    public:
+      // Constructor
+      Button_Handler(ButtonConstants::ButtonID button);
+      // Destructor
+      ~Button_Handler();
 
-  static bool commandRunning;
+      std::uint64_t GetMainTimer();
+      std::uint64_t GetButtonTimer();
+      std::uint16_t GetButtonPressCount();
 
-  static void handleButtonPressesResponse(int numberOfPresses);
+  protected:
+      // Reads the state of the button on start
+      void ReadOnWakeup();
 
-  static void updateHeadlightDelay();
+      // Returns true if on wakeup the state of the button differs
+      //  from the last saved state.
+      bool ButtonStateDiffers();
 
-public:
-  // Used for up/down actions (or blinks) --- any action which results in
-  // complete movement baseically
-  static unsigned long leftTimer;
-  static unsigned long rightTimer;
+      // Return the persisted data of the selected button
+      RTCData &GetButtonRTCData();
 
-  static bool leftMoving;
-  static bool rightMoving;
+      std::uint64_t mainTimer_;             //
+      std::uint64_t buttonTimer_;           //
+      std::uint16_t buttonPressCounter_;    //
+      std::uint16_t wakeupValue_;           // Wakeup state of button
+      std::uint16_t inputValue_;            // Input state of button
+      ButtonConstants::ButtonID selectedButton_; // The button that was pressed
 
-  static int leftMoveTime;
-  static int rightMoveTime;
-
-  static bool customCommandActive;
-  inline static void init() {
-    mainTimer = 0;
-    buttonTimer = 0;
-    buttonPressCounter = 0;
-    customCommandActive = false;
-  }
-
-  inline static bool isBusy() {
-    ButtonHandler::loopLeftMonitor();
-    ButtonHandler::loopRightMonitor();
-    return leftMoving || rightMoving;
-  };
-
-  inline static void setBusy(bool busy) { commandRunning = busy; };
-
-  static void setupGPIO();
-  static void readOnWakeup();
-  static void readWakeUpReason();
-
-  static void loopLeftMonitor();
-  static void loopRightMonitor();
-
-  static void loopButtonHandler();
-  static void loopCustomCommandInterruptHandler();
-  static void updateButtonSleep();
-  static void setCustomCommandActive(bool value);
-
-  inline static bool isLeftMoving() { return leftMoving; };
-  inline static bool isRightMoving() { return rightMoving; };
-
-  inline static void setIsSleepyCommand(bool sleepy) {
-    isSleepyCommand = sleepy;
-  }
+    private:
+      // Non-copy Constructor
+      Button_Handler(const Button_Handler &) = delete;
+      Button_Handler &operator=(const Button_Handler &) = delete;
 };
+
+#endif // __BUTTON_HANDLER_H

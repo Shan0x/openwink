@@ -1,84 +1,16 @@
-#include <string.h>
-#include <Arduino.h>
-#include "esp_mac.h"
+#include "../include/GPIO_Config.h"
+#include "../include/ButtonHandler.h"
 
-#include "constants.h"
-#include "Storage.h"
-#include "MainFunctions.h"
-#include "BLE.h"
-#include "ButtonHandler.h"
-#include "BLECallbacks.h"
-#include "CommandHandler.h"
+/////////////////////////////////////////////////
+/// Main entry point for the open wink module 
+/////////////////////////////////////////////////
+extern "C" void app_main(void) 
+{
+    // Setup GPIO pins
+    GPIO_Config::Initialize_GPIO_Configs();
 
-using namespace std;
+    // Initialize Buttons
+    // Enable wakeup sources on startup; By default enables both GPIO wakeup AND Timer wakeup
+    Button_Handler oem_Button(ButtonConstants::OEM_BUTTON);
 
-void motionInMonitorTask(void* params);
-
-void setup() {
-  Serial.begin(115200);
-
-  // Variable to store the MAC address
-  uint8_t baseMac[6];
-
-  esp_read_mac(baseMac, ESP_MAC_BT);
-  Serial.print("Bluetooth MAC: ");
-  for (int i = 0; i < 5; i++) {
-    Serial.printf("%02X:", baseMac[i]);
-  }
-  Serial.printf("%02X\n", baseMac[5]);
-
-  ButtonHandler::setupGPIO();
-  ButtonHandler::init();
-
-  ButtonHandler::readOnWakeup();
-
-  BLE::init("OpenWink");
-  
-  ButtonHandler::readOnWakeup();
-  Storage::begin("oem-store");
-  Storage::getFromStorage();
-  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
-  setCpuFrequencyMhz(80);
-  ButtonHandler::readOnWakeup();
-  esp_sleep_enable_timer_wakeup(sleepTime_us);
-
-  printf("Version %s\n", FIRMWARE_VERSION);
-  ButtonHandler::readOnWakeup();
-  BLE::start();
-
-  ButtonHandler::readWakeUpReason();
-  ButtonHandler::readOnWakeup();
-
-  xTaskCreate(motionInMonitorTask, "MONITOR", 4096, NULL, 1, NULL);
-}
-
-void motionInMonitorTask(void* params) {
-  for (;;) {
-    ButtonHandler::loopLeftMonitor();
-    ButtonHandler::loopRightMonitor();
-    vTaskDelay(pdMS_TO_TICKS(2.5));
-  }
-}
-
-void loop() {
-
-  if (auth_status != AuthState::UNCLAIMED && auth_status != AuthState::AUTHENTICATED && (millis() > (authTimer + AUTH_TIME_MS))) {
-    NimBLEDevice::getServer()->disconnect(authConnInfo);
-    authConnInfo = BLE_HS_CONN_HANDLE_NONE;
-  }
-
-  if (otaUpdateRestartQueued) {
-    delay(100);
-    ESP.restart();
-  }
-
-  if (queuedCommand != -1) {
-    // handle sent command
-    CommandHandler::handleQueuedCommand();
-  }
-  if (queuedCustomCommand != "")
-    CommandHandler::handleQueuedCustomCommand();
-
-  ButtonHandler::loopButtonHandler();
-  ButtonHandler::updateButtonSleep();
 }
