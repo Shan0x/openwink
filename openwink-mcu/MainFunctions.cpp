@@ -377,7 +377,6 @@ void rightWink() {
   BLE::updateHeadlightChars();
 }
 
-
 enum WaveState {
   START_SIDE,
   START_OPP,
