@@ -1,23 +1,27 @@
-#include "../include/Button_Handler.h"
-#include "../include/GPIO_Config.h"
+#include "Buttons/Button.h"
+#include "Buttons/Button_Handler.h"
+#include "Configuration/GPIO_Config.h"
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
 
 /////////////////////////////////////////////////
 /// Main entry point for the open wink module 
 /////////////////////////////////////////////////
 extern "C" void app_main(void) 
 {
-    // Setup Logging
-
-    // Setup GPIO pins
+    // Setup GPIO
     GPIO_Config::Initialize_GPIO_Configs();
 
-    // Setup Physical Buttons
-    Button_Handler oem_Button(ButtonConstants::OEM_BUTTON); // Handles the state of the button
-    // Button_Handler custom_Button(ButtonConstants::CUSTOM_BUTTON_1); // Example Handler for a future button
+    // Setup Button Handler and Buttons
+    Button_Handler buttonHandler;
 
-    // Initalize BLE
+    //  Setup wakeup sources
+    buttonHandler.ReadOnWakeup();
+
+    // Initalize BLE 
     // Initialize Display
-
     // StartTasks
 
 }
