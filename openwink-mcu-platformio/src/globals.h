@@ -101,4 +101,17 @@ enum WAVE_START_SIDE
     RIGHT,
 };
 
+enum ButtonState
+{
+    BUTTON_PRESSED,
+    BUTTON_RELEASED
+};
+
+struct ButtonData
+{
+    gpio_num_t buttonPin;
+    ButtonState initialState;
+};
+
+
 #endif // __GLOBALS_H

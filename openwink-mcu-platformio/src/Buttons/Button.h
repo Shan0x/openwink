@@ -5,18 +5,6 @@
 
 #include "../globals.h"
 
-enum ButtonEventType
-{
-    BUTTON_PRESSED,
-    BUTTON_RELEASED
-};
-
-struct ButtonEvent
-{
-    int buttonId;
-    ButtonEventType type;
-}; 
-
 class Button
 {
     public:
@@ -28,8 +16,8 @@ class Button
         bool IsCustomCommandActive() const;
         void SetMainTimer(std::uint64_t time);
         void SetButtonTimer(std::uint64_t time);
-        bool IsActive();
-        void UpdateButtonWakeup();
+        bool IsInstalled();
+        void ConfigureWakeup();
 
         gpio_num_t GetGpioPin() const;
         std::uint64_t GetMainTimer();
@@ -46,14 +34,18 @@ class Button
         void SetDefaultCommand();
         void SetCustomCommand();
         void EnableCustomCommand(bool state);
+        // Update the wakeup condition for this button
         void EnableButton(bool state);
+        // Handle what a single press does
         void SinglePress();
+        // Handle what a double press does
         void DoublePress();
-        void TriplePress();
+        // Handle what multipe presses does
+        void MultiPress();
 
     private:
         gpio_num_t gpioPin_;
-        bool isActive_;
+        bool installed_;
 };
 
 #endif // __BUTTON_H

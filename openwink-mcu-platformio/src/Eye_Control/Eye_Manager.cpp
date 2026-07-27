@@ -9,8 +9,6 @@ Eye_Manager::Eye_Manager()
     rightEye_ = Eye(OUT_PIN_RIGHT_UP, OUT_PIN_RIGHT_DOWN);
 }
 
-
-
 EyeState Eye_Manager::GetInitialState(Eye& eye)
 {
     return eye.GetCurrentState();

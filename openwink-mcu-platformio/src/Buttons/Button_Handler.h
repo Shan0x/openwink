@@ -30,7 +30,9 @@ class Button_Handler {
       size_t buttonCount_;
 
     protected:
-      void HandleButtonEvent(const ButtonEvent& event);
+      void HandleButtonEvent(const ButtonData& data);
+      void ReadWakeupCause();
+      void HandleButtonWakeup();
       uint64_t debounceTimer_;
 
     private:

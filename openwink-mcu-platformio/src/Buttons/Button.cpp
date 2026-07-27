@@ -15,7 +15,7 @@ Button::Button(gpio_num_t gpioPin, bool active)
     , currentButtonState_(0)
     , customCommandActive_(false)
     , gpioPin_(gpioPin)
-    , isActive_(active)
+    , installed_(active)
 {
 
 }
@@ -63,17 +63,17 @@ bool Button::IsDirty()
     return wakeupButtonState_ != currentButtonState_;
 }
 
-bool Button::IsActive()
+bool Button::IsInstalled()
 {
-    return isActive_;
+    return installed_;
 }
 
 void Button::EnableButton(bool state)
 {
-    isActive_ = state;
+    installed_ = state;
 }
 
-void Button::UpdateButtonWakeup()
+void Button::ConfigureWakeup()
 {
     esp_err_t err = gpio_wakeup_enable(
         gpioPin_,

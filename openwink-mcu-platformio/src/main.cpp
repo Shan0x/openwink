@@ -14,11 +14,11 @@ extern "C" void app_main(void)
     // Setup GPIO
     GPIO_Config::Initialize_GPIO_Configs();
 
-    // Setup Button Handler and Buttons
+    // Setup Buttons and wakeup sources
     Button_Handler buttonHandler;
-
-    //  Setup wakeup sources
     buttonHandler.ReadOnWakeup();
+
+    esp_deep_sleep_start();
 
     // Initalize BLE 
     // Initialize Display
